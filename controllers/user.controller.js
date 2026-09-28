@@ -95,15 +95,18 @@ export const createProduct=async(req,res)=>{
             message:"All product field are required"
         })
     }
-    if(!req.file){
+      if (!req.file) {
         return res.status(400).json({
-            success:false,
-            message:"Product image is required"
-        })
+            success: false,
+            message: "Product image is required"
+        });
     }
-    const cloudinaryResult=await uploadToCloudinary(
+
+    const cloudinaryResult = await uploadToCloudinary(
         req.file.buffer
-    )
+    );
+
+ 
 
     const product=await Product.create({
         name,
@@ -111,7 +114,8 @@ export const createProduct=async(req,res)=>{
         price,
         stock,
         category,
-        image:cloudinaryResult.secure_url
+        image: cloudinaryResult.secure_url
+
 
     });
     res.status(201).json({
@@ -142,25 +146,54 @@ export const getProductById=async(req,res)=>{
         product
     })
 }
-export const updateProduct=async(req,res)=>{
-    const product=await Product.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {new:true, runValidators:true}
-    );
-    if(!product){
-        return res.status(404).json({
-            success:false,
-            message:"Prodct not found"
-        })
-    }
+export const updateProduct = async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id);
 
-    res.status(200).json({
-        success:true,
-        message:"product update successfully",
-        product
-    })
-}
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: "Product not found"
+            });
+        }
+
+        const { name, description, price, stock, category } = req.body;
+
+        // Update normal product fields
+        product.name = name ?? product.name;
+        product.description = description ?? product.description;
+        product.price = price ?? product.price;
+        product.stock = stock ?? product.stock;
+        product.category = category ?? product.category;
+
+        // If a new image was selected, upload it
+        if (req.file) {
+            const cloudinaryResult = await uploadToCloudinary(
+                req.file.buffer
+            );
+
+            product.image = cloudinaryResult.secure_url;
+        }
+
+        await product.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Product updated successfully",
+            product
+        });
+
+    } catch (error) {
+        console.log("Error updating product:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to update product"
+        });
+    }
+};
+
+
 export const deleteProduct=async(req,res)=>{
         const product=await Product.findByIdAndDelete(req.params.id);
         if(!product){
@@ -173,4 +206,23 @@ export const deleteProduct=async(req,res)=>{
             success:true,
             message:"product is deleted successfully "
         })
+    }
+
+
+    export const getallUsers=async(req,res)=>{
+        try{
+            const users = await User.find().select("-password");
+            return res.status(200).json({
+                success:true,
+                message:"All users retrived succesfully",
+                users
+            })
+        }
+        catch(error){
+            console.log("get all users failed",error)
+            return res.status(500).json({
+                success:false,
+                message:"Unable ti get users"
+            })
+        }
     }

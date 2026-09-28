@@ -7,7 +7,7 @@ import { isAdmin } from "../middleware/admin.middleware.js"
 const router=express.Router()
 
 router.post("/",protect,createCoupon)
-router.post("/apply",protect,isAdmin,applyCoupon)
+router.post("/apply",protect,applyCoupon)
 
 
 export default router

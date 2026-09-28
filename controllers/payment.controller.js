@@ -76,6 +76,62 @@ export const createpayment = async (req, res) => {
         });
     }
 };
+export const mockpaymentSuccess=async(req,res)=>{
+    try{
+        const payment=await Payment.findById(req.params.paymentId);
+        if(!payment){
+            return res.status(404).json({
+                success:false,
+                message:"Payment not found"
+            })
+        }
+        if(payment.user.toString()!==req.user.userId){
+            return res.status(403).json({
+                success:false,
+                message:"you can update only your own payment"
+            })
+        }
+        if(payment.paymentStatus!=="pending"){
+            return res.status(400).json({
+                success:false,
+                message:"Payment is already completed or cannot be processed"
+            })
+        }
+        payment.paymentStatus="paid";
+
+        await payment.save();
+
+        // A successful payment makes the order ready for fulfillment.
+        // `Order.status` is an order-lifecycle status, so use `confirmed`
+        // instead of `paid` (which is not an allowed Order status).
+     const order = await Order.findByIdAndUpdate(
+    payment.order,
+    { status: "confirmed" },
+    { new: true, runValidators: true }
+);
+
+if (!order) {
+    return res.status(404).json({
+        success: false,
+        message: "Order not found"
+    });
+}
+
+        return res.status(200).json({
+            success:true,
+            message:"Mock payment successful",
+            payment
+        })
+
+    } catch(error){
+        console.log("Mock payment failed :",error);
+
+        return res.status(500).json({
+            success:false,
+            message:"Error processing mock payment"
+        })
+    }
+}
 
 
 // Update payment status

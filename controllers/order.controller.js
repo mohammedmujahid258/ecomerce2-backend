@@ -4,7 +4,7 @@ import Product from "../models/product.model.js";
 import Coupon from "../models/coupons.model.js";
 export const createOrder = async (req, res) => {
     try {
-        const{couponCode}=req.body;
+        const{couponCode}=req.body || {};
 
         const cart = await Cart.findOne({
             user: req.user.userId
@@ -172,6 +172,7 @@ export const getAllOrders=async(req,res)=>{
 }
 export const updateOrderStatus=async(req,res)=>{
     try{
+        console.log("Update order status hit :",req.params.id,req.body)
         const {status}=req.body;
         const allowedStatuses=[
             "pending",

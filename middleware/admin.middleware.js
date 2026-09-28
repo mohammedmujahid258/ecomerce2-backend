@@ -5,5 +5,8 @@ export const isAdmin=(req,res,next)=>{
             message:"Access defined.Admin only"
         })
     }
-    next()
+    next(
+
+        
+    )
 }

@@ -4,20 +4,19 @@ import mongoose from "mongoose";
 export const addToCart=async(req,res)=>{
     try {
     const {productId,quantity}=req.body;
-    if(!mongoose.isValidObjectId(productId)){
-        return res.status(400).json({
-            success:false,
-            message:"invalid product id"
-,
-        })
+if(!mongoose.isValidObjectId(productId)){
+    return res.status(400).json({
+        success:false,
+        message:"invalid product id"
+    });
+}
 
-    }
-    if(!productId){
-        return res.status(400).json({
-            success:false,
-            message:"Product Id is required"
-        })
-    }
+if(!productId){
+    return res.status(400).json({
+        success:false,
+        message:"Product Id is required"
+    });
+}
     if(typeof quantity !== "number" || quantity <1){
         return res.status(400).json({
             success:false,
@@ -197,21 +196,19 @@ export const updateCart = async (req, res) => {
 export const removeFromCart=async(req,res)=>{
     try{
         const {productId}=req.body;
-            if(!mongoose.isValidObjectId(productId)){
-        return res.status(400).json({
-            success:false,
-            message:"invalid product id"
-,
-        })
+        if (!productId) {
+           return res.status(400).json({
+            success: false,
+            message: "Product ID is required"
+          });
+         }
 
-    }
-
-        if(!productId){
+       if (!mongoose.isValidObjectId(productId)) {
             return res.status(400).json({
-                success:false,
-                message:"Product ID is required"
-            })
-        }
+            success: false,
+            message: "Invalid product ID"
+      });
+}
         const cart=await Cart.findOne({
             user:req.user.userId
 
