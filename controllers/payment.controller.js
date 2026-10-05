@@ -4,8 +4,8 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 
 const getRazorpay = () => new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
+    key_id: (process.env.RAZORPAY_KEY_ID || "").trim(),
+    key_secret: (process.env.RAZORPAY_KEY_SECRET || "").trim(),
 });
 
 // Create a payment
@@ -54,50 +54,75 @@ export const createpayment = async (req, res) => {
         });
 
         if (existingpayment) {
-            return res.status(400).json({
-                success: false,
-                message: "A payment already exists for this order"
-            });
+            if (existingpayment.paymentStatus === "paid") {
+                return res.status(400).json({
+                    success: false,
+                    message: "A paid payment already exists for this order"
+                });
+            }
+            // Reuse existing pending payment record
+            existingpayment.paymentMethod = paymentMethod;
+            await existingpayment.save();
         }
 
-        // 6. Create the payment
-        const payment = await Payment.create({
+        // 6. Create or reuse payment record
+        const payment = existingpayment || await Payment.create({
             order: order._id,
             user: req.user.userId,
             amount: order.totalAmount,
             paymentMethod,
-            ...(paymentMethod === "RAZORPAY" && { razorpayOrderId: undefined })
+            paymentStatus: "pending",
         });
 
         if (paymentMethod === "RAZORPAY") {
-            if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-                await Payment.findByIdAndDelete(payment._id);
-                return res.status(503).json({ success: false, message: "Online payments are not configured." });
+            const keyId = (process.env.RAZORPAY_KEY_ID || "").trim();
+            const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
+
+            if (!keyId || !keySecret) {
+                return res.status(503).json({
+                    success: false,
+                    message: "Razorpay online payments are not configured on the server. Please select Cash on Delivery."
+                });
             }
-            const razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(order.totalAmount * 100),
-                currency: "INR",
-                receipt: order._id.toString(),
-                notes: { orderId: order._id.toString(), paymentId: payment._id.toString() },
-            });
-            payment.razorpayOrderId = razorpayOrder.id;
-            await payment.save();
-            return res.status(201).json({
-                success: true,
-                payment,
-                razorpay: { orderId: razorpayOrder.id, amount: razorpayOrder.amount, currency: razorpayOrder.currency, keyId: process.env.RAZORPAY_KEY_ID },
-            });
+
+            try {
+                const razorpayOrder = await getRazorpay().orders.create({
+                    amount: Math.round(order.totalAmount * 100),
+                    currency: "INR",
+                    receipt: order._id.toString(),
+                    notes: { orderId: order._id.toString(), paymentId: payment._id.toString() },
+                });
+                payment.razorpayOrderId = razorpayOrder.id;
+                await payment.save();
+                return res.status(201).json({
+                    success: true,
+                    payment,
+                    razorpay: {
+                        orderId: razorpayOrder.id,
+                        amount: razorpayOrder.amount,
+                        currency: razorpayOrder.currency,
+                        keyId: keyId,
+                    },
+                });
+            } catch (rzpErr) {
+                console.error("Razorpay orders.create failed:", rzpErr.message || rzpErr);
+                return res.status(400).json({
+                    success: false,
+                    message: `Razorpay payment gateway error: ${rzpErr.error?.description || rzpErr.message || "Invalid credentials"}. Please select Cash on Delivery.`
+                });
+            }
         }
 
-        // 7. Send the response
-        res.status(201).json({
+        // 7. Send the response for COD / other methods
+        return res.status(201).json({
             success: true,
             message: "Payment created successfully",
             payment
         });
 
     } catch (error) {
-        res.status(500).json({
+        console.error("createpayment error:", error);
+        return res.status(500).json({
             success: false,
             message: "Error creating payment",
             error: error.message
@@ -112,8 +137,12 @@ export const verifyRazorpayPayment = async (req, res) => {
         if (!payment || payment.razorpayOrderId !== razorpay_order_id) {
             return res.status(404).json({ success: false, message: "Payment record not found" });
         }
+        const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
+        if (!keySecret) {
+            return res.status(500).json({ success: false, message: "Payment gateway secret is missing." });
+        }
         const expectedSignature = crypto
-            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+            .createHmac("sha256", keySecret)
             .update(`${razorpay_order_id}|${razorpay_payment_id}`)
             .digest("hex");
         if (expectedSignature !== razorpay_signature) {
@@ -130,63 +159,60 @@ export const verifyRazorpayPayment = async (req, res) => {
         return res.status(500).json({ success: false, message: "Payment verification failed" });
     }
 };
-export const mockpaymentSuccess=async(req,res)=>{
-    try{
-        const payment=await Payment.findById(req.params.paymentId);
-        if(!payment){
-            return res.status(404).json({
-                success:false,
-                message:"Payment not found"
-            })
-        }
-        if(payment.user.toString()!==req.user.userId){
-            return res.status(403).json({
-                success:false,
-                message:"you can update only your own payment"
-            })
-        }
-        if(payment.paymentStatus!=="pending"){
-            return res.status(400).json({
-                success:false,
-                message:"Payment is already completed or cannot be processed"
-            })
-        }
-        payment.paymentStatus="paid";
 
+export const mockpaymentSuccess = async (req, res) => {
+    try {
+        const payment = await Payment.findById(req.params.paymentId);
+        if (!payment) {
+            return res.status(404).json({
+                success: false,
+                message: "Payment not found"
+            });
+        }
+        if (payment.user.toString() !== req.user.userId) {
+            return res.status(403).json({
+                success: false,
+                message: "you can update only your own payment"
+            });
+        }
+        if (payment.paymentStatus === "paid") {
+            return res.status(200).json({
+                success: true,
+                message: "Payment already confirmed",
+                payment
+            });
+        }
+        payment.paymentStatus = "paid";
         await payment.save();
 
-        // A successful payment makes the order ready for fulfillment.
-        // `Order.status` is an order-lifecycle status, so use `confirmed`
-        // instead of `paid` (which is not an allowed Order status).
-     const order = await Order.findByIdAndUpdate(
-    payment.order,
-    { status: "confirmed" },
-    { new: true, runValidators: true }
-);
+        const order = await Order.findByIdAndUpdate(
+            payment.order,
+            { status: "confirmed" },
+            { new: true, runValidators: true }
+        );
 
-if (!order) {
-    return res.status(404).json({
-        success: false,
-        message: "Order not found"
-    });
-}
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: "Order not found"
+            });
+        }
 
         return res.status(200).json({
-            success:true,
-            message:"Mock payment successful",
-            payment
-        })
+            success: true,
+            message: "Payment confirmed successfully",
+            payment,
+            order
+        });
 
-    } catch(error){
-        console.log("Mock payment failed :",error);
-
+    } catch (error) {
+        console.log("Payment confirmation failed:", error);
         return res.status(500).json({
-            success:false,
-            message:"Error processing mock payment"
-        })
+            success: false,
+            message: "Error processing payment"
+        });
     }
-}
-
+};
 
 // Update payment status
 export const updatepaymentStatus = async (req, res) => {
