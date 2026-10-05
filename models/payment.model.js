@@ -17,12 +17,14 @@ const paymentSchema=new mongoose.Schema(
         },
         paymentMethod:{
             type:String,
-            enum:["COD","MOCK"],
+            enum:["COD","RAZORPAY","MOCK"],
             required:true
         },
+        razorpayOrderId:{ type:String, index:true },
+        razorpayPaymentId:{ type:String },
         paymentStatus:{
             type:String,
-            enum:["pending","paid","failed","refund"],
+            enum:["pending","paid","failed","refunded"],
             default:"pending"
         }
     },
